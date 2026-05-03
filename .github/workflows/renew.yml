@@ -2,7 +2,7 @@ name: Free-cloud Multi-Account Renew
 
 on:
   schedule:
-    - cron: '21 2 * * *'
+    - cron: '31 5 * * *'
   workflow_dispatch:
 
 permissions:
@@ -11,14 +11,25 @@ permissions:
 jobs:
   run-task:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
+      
+      # 1. 检出当前仓库
+      - name: 📥 检出当前仓库
+        uses: actions/checkout@v4
+
       - name: 📥 拉取私库代码
         uses: actions/checkout@v4
         with:
           repository: ${{ github.repository_owner }}/Test-Free-cloud
           token: ${{ secrets.GH_PAT }} 
-      # ==================================================
+          path: private_code
+
+      - name: 🔄 合并代码到工作区
+        run: |
+          rsync -a --exclude='.git' private_code/ ./
+          rm -rf private_code
+          
 
       - name: 🔍 检查是否需要续期 (读取 state.json)
         id: check_state
@@ -49,7 +60,7 @@ jobs:
               
           for idx in account_indices:
               exp_time = state.get(idx, 0)
-              # 核心逻辑：到期时间戳 - 当前时间戳 <= 3天(259200秒)
+              # 逻辑：到期时间戳 - 当前时间戳 <= 3天(259200秒)
               if exp_time - current_time <= 259200:
                   needs_run = True
                   break
