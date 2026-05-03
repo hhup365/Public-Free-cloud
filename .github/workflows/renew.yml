@@ -1,12 +1,11 @@
 name: Free-cloud Multi-Account Renew
 on:
   schedule:
-    - cron: '31 5 * * *'
+    - cron: '11 3 * * *'
   workflow_dispatch:
 
 permissions:
   contents: write
-  actions: write
 
 jobs:
   run-task:
@@ -109,30 +108,3 @@ jobs:
         with:
           name: debug-screenshots
           path: screenshots/*.png
-
-      - name: 🧹 清理 Action 运行记录
-        if: success()
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          echo "🧹 开始清理所有成功的 Action 运行记录（含本次）..."
-
-          gh run list \
-            --repo ${{ github.repository }} \
-            --status success \
-            --limit 100 \
-            --json databaseId \
-            -q '.[].databaseId' | while read run_id; do
-              if [ "$run_id" != "${{ github.run_id }}" ]; then
-                echo "  🗑️ 删除历史记录: $run_id"
-                gh run delete "$run_id" --repo ${{ github.repository }}
-              fi
-          done
-
-          echo "  ⏳ 等待本次记录状态落库..."
-          sleep 10
-          echo "  🗑️ 删除本次记录: ${{ github.run_id }}"
-          gh run delete "${{ github.run_id }}" --repo ${{ github.repository }} || \
-            echo "  ⚠️ 本次记录删除失败（可忽略，下次成功时会被清理）"
-
-          echo "✅ 清理完成"
