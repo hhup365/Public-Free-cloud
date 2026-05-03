@@ -1,0 +1,102 @@
+name: Free-cloud Multi-Account Renew
+
+on:
+  schedule:
+    - cron: '21 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  run-task:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: 📥 拉取私库代码
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/Test-Free-cloud
+          token: ${{ secrets.GH_PAT }} 
+      # ==================================================
+
+      - name: 🔍 检查是否需要续期 (读取 state.json)
+        id: check_state
+        env:
+          ALL_SECRETS: ${{ toJson(secrets) }}
+        run: |
+          python3 -c '
+          import os, json, time
+          secrets = json.loads(os.environ.get("ALL_SECRETS", "{}"))
+          try:
+              with open("state.json", "r") as f:
+                  state = json.load(f)
+          except:
+              state = {}
+          
+          needs_run = False
+          current_time = time.time()
+          
+          account_indices = set()
+          for key in secrets.keys():
+              if key.startswith("FC_USERNAME_"):
+                  account_indices.add(key.split("_")[-1])
+              elif key == "FC_USERNAME":
+                  account_indices.add("0")
+                  
+          if not account_indices:
+              needs_run = True
+              
+          for idx in account_indices:
+              exp_time = state.get(idx, 0)
+              # 核心逻辑：到期时间戳 - 当前时间戳 <= 3天(259200秒)
+              if exp_time - current_time <= 259200:
+                  needs_run = True
+                  break
+                  
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"needs_run={str(needs_run).lower()}\n")
+          '
+
+      - name: 🐍 准备 Python 环境
+        if: steps.check_state.outputs.needs_run == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 📦 安装环境依赖
+        if: steps.check_state.outputs.needs_run == 'true'
+        run: |
+          pip install -r requirements.txt
+          sudo apt-get update
+          sudo apt-get install -y xvfb chromium-browser
+
+      - name: ⚙️ 准备 Proxy
+        if: steps.check_state.outputs.needs_run == 'true'
+        run: |
+          SINGBOX_VER="1.13.11"
+          wget -q https://github.com/SagerNet/sing-box/releases/download/v${SINGBOX_VER}/sing-box-${SINGBOX_VER}-linux-amd64.tar.gz
+          tar -xzf sing-box-${SINGBOX_VER}-linux-amd64.tar.gz
+          mv sing-box-${SINGBOX_VER}-linux-amd64/sing-box ./sing-box
+          chmod +x ./sing-box
+
+      - name: 🚀 执行主控程序
+        if: steps.check_state.outputs.needs_run == 'true'
+        env:
+          ALL_SECRETS: ${{ toJson(secrets) }}
+        run: python3 app.py
+
+      - name: 💾 保存状态文件 (state.json)
+        if: steps.check_state.outputs.needs_run == 'true'
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add state.json || true
+          git diff --quiet && git diff --staged --quiet || (git commit -m "chore: auto-update state.json [skip ci]" && git push)
+
+      - name: 📸 上传运行截图
+        if: always() && steps.check_state.outputs.needs_run == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-screenshots
+          path: screenshots/*.png
