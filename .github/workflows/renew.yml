@@ -1,5 +1,4 @@
 name: Free-cloud Multi-Account Renew
-
 on:
   schedule:
     - cron: '31 5 * * *'
@@ -7,13 +6,14 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
   run-task:
     runs-on: ubuntu-latest
     timeout-minutes: 90
+
     steps:
-      
       - name: 📥 检出当前仓库
         uses: actions/checkout@v4
 
@@ -21,14 +21,13 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ${{ github.repository_owner }}/Test-Free-cloud
-          token: ${{ secrets.GH_PAT }} 
+          token: ${{ secrets.GH_PAT }}
           path: private_code
 
       - name: 🔄 合并代码到工作区
         run: |
           rsync -a --exclude='.git' private_code/ ./
           rm -rf private_code
-          
 
       - name: 🔍 检查是否需要续期 (读取 state.json)
         id: check_state
@@ -43,27 +42,26 @@ jobs:
                   state = json.load(f)
           except:
               state = {}
-          
+
           needs_run = False
           current_time = time.time()
-          
+
           account_indices = set()
           for key in secrets.keys():
               if key.startswith("FC_USERNAME_"):
                   account_indices.add(key.split("_")[-1])
               elif key == "FC_USERNAME":
                   account_indices.add("0")
-                  
+
           if not account_indices:
               needs_run = True
-              
+
           for idx in account_indices:
               exp_time = state.get(idx, 0)
-              # 逻辑：到期时间戳 - 当前时间戳 <= 3天(259200秒)
               if exp_time - current_time <= 259200:
                   needs_run = True
                   break
-                  
+
           with open(os.environ["GITHUB_OUTPUT"], "a") as f:
               f.write(f"needs_run={str(needs_run).lower()}\n")
           '
@@ -99,10 +97,11 @@ jobs:
       - name: 💾 保存状态文件 (state.json)
         if: steps.check_state.outputs.needs_run == 'true'
         run: |
-          git config --global user.name "github-actions[bot]"
+          git config --global user.name  "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add state.json || true
-          git diff --quiet && git diff --staged --quiet || (git commit -m "chore: auto-update state.json [skip ci]" && git push)
+          git diff --quiet && git diff --staged --quiet || \
+            (git commit -m "chore: auto-update state.json [skip ci]" && git push)
 
       - name: 📸 上传运行截图
         if: always() && steps.check_state.outputs.needs_run == 'true'
@@ -110,3 +109,30 @@ jobs:
         with:
           name: debug-screenshots
           path: screenshots/*.png
+
+      - name: 🧹 清理 Action 运行记录
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "🧹 开始清理所有成功的 Action 运行记录（含本次）..."
+
+          gh run list \
+            --repo ${{ github.repository }} \
+            --status success \
+            --limit 100 \
+            --json databaseId \
+            -q '.[].databaseId' | while read run_id; do
+              if [ "$run_id" != "${{ github.run_id }}" ]; then
+                echo "  🗑️ 删除历史记录: $run_id"
+                gh run delete "$run_id" --repo ${{ github.repository }}
+              fi
+          done
+
+          echo "  ⏳ 等待本次记录状态落库..."
+          sleep 10
+          echo "  🗑️ 删除本次记录: ${{ github.run_id }}"
+          gh run delete "${{ github.run_id }}" --repo ${{ github.repository }} || \
+            echo "  ⚠️ 本次记录删除失败（可忽略，下次成功时会被清理）"
+
+          echo "✅ 清理完成"
