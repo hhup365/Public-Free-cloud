@@ -1,0 +1,21 @@
+name: Cleanup Success Runs
+on:
+  workflow_run:
+    workflows: ["Free-cloud Multi-Account Renew"]
+    types:
+      - completed
+
+permissions:
+  actions: write
+
+jobs:
+  clean:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    steps:
+      - name: 🗑️ 删除工作流记录
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "开始删除已完成的成功记录: ${{ github.event.workflow_run.id }}"
+          gh run delete ${{ github.event.workflow_run.id }} --repo ${{ github.repository }}
