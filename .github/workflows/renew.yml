@@ -1,7 +1,7 @@
 name: Free-cloud Multi-Account Renew
 on:
   schedule:
-    - cron: '11 3 * * *'
+    - cron: '10 1 * * *'
   workflow_dispatch:
 
 permissions:
